@@ -276,7 +276,7 @@ class PDFToMarkdownConverter:
             List[Tuple[Tuple, str]]: (bbox, OCR 텍스트) 리스트
         """
         ocr_results = []
-        image_list = page.get_images()
+        image_list = page.get_images(full=True)  # full=True로 전체 정보 가져오기
         
         for img_index, img in enumerate(image_list):
             try:
@@ -284,22 +284,37 @@ class PDFToMarkdownConverter:
                 xref = img[0]
                 pix = fitz.Pixmap(page.parent, xref)
                 
+                # CMYK 등 다른 색상 공간 처리
+                if pix.n - pix.alpha >= 4:  # CMYK
+                    pix1 = fitz.Pixmap(fitz.csRGB, pix)
+                    pix = pix1
+                
                 # PIL Image로 변환
                 img_data = pix.tobytes("png")
                 image = Image.open(io.BytesIO(img_data))
                 
                 # OCR 수행
-                ocr_text = pytesseract.image_to_string(image, lang='kor+eng')
+                try:
+                    ocr_text = pytesseract.image_to_string(image, lang='kor+eng')
+                except pytesseract.TesseractNotFoundError:
+                    print("Tesseract OCR이 설치되어 있지 않습니다. OCR 기능을 사용하려면 Tesseract를 설치하세요.")
+                    pix = None
+                    continue
                 
                 if ocr_text.strip():
                     # 이미지의 위치 정보 가져오기
-                    img_rect = page.get_image_bbox(img)
-                    ocr_results.append((img_rect, ocr_text.strip()))
+                    # get_image_bbox에 전체 이미지 정보 전달
+                    try:
+                        img_rect = page.get_image_bbox(img)
+                        ocr_results.append((img_rect, ocr_text.strip()))
+                    except:
+                        # bbox를 가져올 수 없는 경우 기본값 사용
+                        print(f"이미지 {img_index}의 위치 정보를 가져올 수 없습니다.")
                 
                 pix = None
                 
             except Exception as e:
-                print(f"이미지 OCR 처리 중 오류: {e}")
+                print(f"이미지 {img_index} OCR 처리 중 오류: {e}")
                 continue
         
         return ocr_results
